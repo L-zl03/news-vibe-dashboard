@@ -1,11 +1,11 @@
 import json
 import random
 import time
-from duckduckgo_search import DDGS
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from openai import OpenAI
+from tavily import TavilyClient
 
 # 1. 页面基础配置
 st.set_page_config(
@@ -13,20 +13,29 @@ st.set_page_config(
 )
 
 
-# 2. 核心函数一：联网搜索实时新闻（带网址链接）
+# 2. 核心函数一：使用 Tavily 稳定搜索实时新闻（带网址链接）
 def search_latest_news(query):
   try:
-    with DDGS() as ddgs:
-      results = [r for r in ddgs.text(query, max_results=4)]
-      if not results:
-        return "未找到相关实时新闻，将基于大模型自身知识库进行推演。"
-      news_context = ""
-      for idx, r in enumerate(results, 1):
-        # 显式保留标题、摘要和链接
-        news_context += f"【新闻 {idx}】\n标题: {r.get('title')}\n摘要: {r.get('body')}\n链接: {r.get('href')}\n\n"
-      return news_context
+    tavily_key = st.secrets.get("TAVILY_API_KEY", "")
+    if not tavily_key:
+      return (
+          "未配置 Tavily 搜索密钥（请在 Secrets 中设置 TAVILY_API_KEY），"
+          "将基于大模型基础知识进行推演。"
+      )
+
+    client = TavilyClient(api_key=tavily_key)
+    response = client.search(query=query, search_depth="basic", max_results=4)
+    results = response.get("results", [])
+
+    if not results:
+      return "未找到相关实时新闻，将基于大模型自身知识库进行推演。"
+
+    news_context = ""
+    for idx, r in enumerate(results, 1):
+      news_context += f"【新闻 {idx}】\n标题: {r.get('title')}\n摘要: {r.get('content')}\n链接: {r.get('url')}\n\n"
+    return news_context
   except Exception as e:
-    return f"联网搜索暂时受限 ({e})，将基于大模型基础知识进行推演。"
+    return f"联网搜索异常 ({e})，将基于大模型基础知识进行推演。"
 
 
 # 3. 核心函数二：智能模拟（无 API Key 时的备用带链接方案）
@@ -52,7 +61,7 @@ def get_simulated_analysis(topic):
                   "具备极高的长期配置价值。"
               ),
               "source_title": "示范报道：前沿技术驱动行业新变革",
-              "source_url": "https://duckduckgo.com",
+              "source_url": "https://tavily.com",
           },
           {
               "group": "风险控制派（合规与安全）",
@@ -61,7 +70,7 @@ def get_simulated_analysis(topic):
                   "呼吁建立前置监管框架。"
               ),
               "source_title": "行业观察：警惕狂热背后的合规风险与隐患",
-              "source_url": "https://duckduckgo.com",
+              "source_url": "https://tavily.com",
           },
           {
               "group": "社会大众（民生视角）",
@@ -70,7 +79,7 @@ def get_simulated_analysis(topic):
                   "强调技术应当兼具普惠性。"
               ),
               "source_title": "民生聚焦：技术落地如何兼顾大众切身利益",
-              "source_url": "https://duckduckgo.com",
+              "source_url": "https://tavily.com",
           },
       ],
       "radar_scores": {
@@ -89,12 +98,12 @@ api_key = st.sidebar.text_input(
     "DeepSeek API Key",
     type="password",
     help=(
-        "输入 Key 后将启动【联网搜索 + 来源引用溯源】；留空则使用演示模式。"
+        "输入 Key 后将启动【Tavily 稳定联网搜索 + DeepSeek 深度思考与溯源】；留空则使用演示模式。"
     ),
 )
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "🔗 **智能溯源引擎**：每个立场观点均可直达对应的全网真实参考来源。"
+    "🔗 **智能溯源引擎**：已接入 Tavily 搜索引擎，每个立场观点均可直达全网真实参考来源。"
 )
 
 # 5. 主界面布局
@@ -109,7 +118,7 @@ user_news_topic = st.text_input(
 )
 
 if st.button("🚀 开始联网检索与多维溯源推演", type="primary"):
-  with st.spinner("正在联网检索资讯，AI 正在溯源推演各方立场与引用链接中..."):
+  with st.spinner("正在通过 Tavily 联网检索，AI 正在溯源推演各方立场中..."):
     search_results_text = search_latest_news(user_news_topic)
     time.sleep(0.8)
 
@@ -124,13 +133,13 @@ if st.button("🚀 开始联网检索与多维溯源推演", type="primary"):
       try:
         client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         prompt = f"""
-        你是一个资深突发新闻分析师和舆情与博弈论专家。以下是通过网络实时检索到的关于【{user_news_topic}】的最新资讯（包含标题、摘要和链接）：
+        你是一个资深突发新闻分析师和舆情与博弈论专家。以下是通过 Tavily 实时检索到的关于【{user_news_topic}】的最新资讯（包含标题、摘要和链接）：
         
         {search_results_text}
         
         请结合上述资讯，执行以下步骤并严格以 JSON 格式输出：
         1. 在 thinking_process 中写出你的深度思考过程：分析这些新闻之间是否存在冲突、各方利益相关者的核心痛点是什么。
-        2. 撰写专业分析报告，并**为每个立场观点精准匹配一条上述检索资讯中的真实新闻标题（source_title）和对应的链接（source_url）**。
+        2. 撰写专业分析报告，并**为每个立场观点精准匹配一条上述检索资讯中的真实新闻标题（source_title）和对应的链接（source_url）**。如果检索结果提示未找到或受限，请基于大模型知识库生成合理观点，并将 source_title 设为 "大模型知识库推演"，source_url 设为 "#"。
         
         必须严格以 JSON 格式输出，不要包含任何 markdown 符号（如 ```json），直接输出合法的 JSON 字符串，结构如下：
         {{
@@ -183,7 +192,7 @@ if st.button("🚀 开始联网检索与多维溯源推演", type="primary"):
 
         raw_content = response.choices[0].message.content
         data = json.loads(raw_content)
-        mode_used = "实时联网检索 + DeepSeek 深度溯源推演"
+        mode_used = "Tavily 稳定联网检索 + DeepSeek 深度溯源推演"
 
       except Exception as e:
         st.warning(f"API 调用或解析异常 ({e})，已自动降级为演示模式。")
@@ -195,16 +204,19 @@ if st.button("🚀 开始联网检索与多维溯源推演", type="primary"):
     st.success(f"✅ 深度推演与溯源完成！当前运行模式：**{mode_used}**")
 
     # AI 深度思考过程展示面板
-    with st.expander("🧠 点击展开：AI 的深度逻辑思考与博弈推演链 (Reasoning)", expanded=False):
+    with st.expander(
+        "🧠 点击展开：AI 的深度逻辑思考与博弈推演链 (Reasoning)",
+        expanded=False,
+    ):
       st.info(data.get("thinking_process", "暂无思考链记录。"))
 
-    with st.expander("🔍 查看 AI 联网检索到的原始参考资讯合集"):
+    with st.expander("🔍 查看 Tavily 联网检索到的原始参考资讯合集"):
       st.text(search_results_text)
 
     st.subheader(data["title"])
     st.write(data["summary"])
 
-    # 多方立场观点卡片展示（🌟 重点：每个卡片下方带可点击的参考来源链接）
+    # 多方立场观点卡片展示（带可点击的参考来源链接）
     st.markdown("### 📌 多方立场深度博弈与来源溯源")
     col1, col2, col3 = st.columns(3)
     cols = [col1, col2, col3]
@@ -253,9 +265,7 @@ if st.button("🚀 开始联网检索与多维溯源推演", type="primary"):
     for s in data["stances"]:
       markdown_content += f"### {s['group']}\n"
       markdown_content += f"- **观点**：{s['view']}\n"
-      markdown_content += (
-          f"- **参考来源**：[{s.get('source_title', '参考来源')}]({s.get('source_url', '#')})\n\n"
-      )
+      markdown_content += f"- **参考来源**：[{s.get('source_title', '参考来源')}]({s.get('source_url', '#')})\n\n"
 
     markdown_content += "## 多维指标评分\n"
     for k, v in scores.items():
