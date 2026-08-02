@@ -68,7 +68,7 @@ def get_simulated_analysis(topic):
       ],
       "radar_scores": {
           "创新突破度": random.randint(78, 95),
-          "资本热度": range_val := random.randint(75, 98),
+          "资本热度": random.randint(75, 98),  
           "监管风险度": random.randint(60, 90),
           "公众关注度": random.randint(82, 99),
           "落地成熟度": random.randint(55, 88),
