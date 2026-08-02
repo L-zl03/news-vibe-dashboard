@@ -1,3 +1,4 @@
+import json
 import random
 import time
 from duckduckgo_search import DDGS
@@ -8,149 +9,173 @@ from openai import OpenAI
 
 # 1. 页面基础配置
 st.set_page_config(
-    page_title="AI 新闻情报与立场看板", page_icon="🌐", layout="wide"
+    page_title="AI 智能情报与深度博弈看板", page_icon="🧠", layout="wide"
 )
 
 
 # 2. 核心函数一：联网搜索实时新闻
 def search_latest_news(query):
-  """使用 DuckDuckGo 免费搜索全网相关新闻资讯"""
   try:
     with DDGS() as ddgs:
-      # 获取前 4 条最相关的实时新闻
       results = [r for r in ddgs.text(query, max_results=4)]
       if not results:
         return "未找到相关实时新闻，将基于大模型自身知识库进行推演。"
-
       news_context = ""
       for idx, r in enumerate(results, 1):
-        news_context += f"【新闻 {idx}】\n标题: {r.get('title')}\n摘要: {r.get('body')}\n链接: {r.get('href')}\n\n"
+        news_context += f"【新闻 {idx}】\n标题: {r.get('title')}\n摘要: {r.get('body')}\n\n"
       return news_context
   except Exception as e:
     return f"联网搜索暂时受限 ({e})，将基于大模型基础知识进行推演。"
 
 
-# 3. 核心函数二：智能动态模拟（无 API Key 时的降级兜底）
-def get_simulated_analysis(topic, search_info=""):
+# 3. 核心函数二：智能模拟（无 API Key 时的备用带思考方案）
+def get_simulated_analysis(topic):
   if not topic:
     topic = "全球科技创新与人工智能发展"
-
-  simulated_data = {
-      "title": f"关于【{topic}】的实时情报检索与多维立场推演报告",
+  return {
+      "thinking_process": (
+          f"【智能演示模式 - 思考链】\n1. 接收到核心主题：{topic}。\n"
+          "2. 正在评估全网检索到的多源信息，识别出技术演进、资本热钱与监管合规三条主线。\n"
+          "3. 正在对各方利益相关者的核心诉求进行博弈论建模与加权评分。"
+      ),
+      "title": f"关于【{topic}】的深度情报分析与多维博弈报告",
       "summary": (
-          f"系统已成功捕获关于【{topic}】的最新全网动态。结合实时检索信息与博弈模型，"
-          "各方利益相关者及资本市场正展现出高度复杂的博弈态势。"
+          f"近期，关于【{topic}】的讨论在全网引起热烈反响。各方势力在技术突破、"
+          "商业化落地与社会伦理之间展开了深度博弈。"
       ),
       "stances": [
           {
-              "group": "乐观创新派（技术驱动）",
+              "group": "创新推动派（技术视角）",
               "view": (
-                  f"基于最新动态，技术突破正在加速兑现，认为【{topic}】将重塑行业格局，"
-                  "带来巨大的增量红利与效率革命。"
+                  f"认为【{topic}】代表了新一轮产业革命的方向，能够显著拉动效率，"
+                  "具备极高的长期配置价值。"
               ),
           },
           {
-              "group": "审慎合规派（风险控制）",
+              "group": "风险控制派（合规与安全）",
               "view": (
-                  f"注意到伴随【{topic}】的发展，市场监管、隐私安全以及资源分配不均等隐患浮出水面，"
-                  "呼吁建立更严密的风控机制。"
+                  f"指出在【{topic}】高速发展背后，数据安全、伦理边界与潜在泡沫不容忽视，"
+                  "呼吁建立前置监管框架。"
               ),
           },
           {
-              "group": "公众与媒体（社会视角）",
+              "group": "社会大众（民生视角）",
               "view": (
-                  f"公众舆论更聚焦于【{topic}】对实际生活、就业结构和大众成本的切身影响，"
-                  "呼吁透明化与公众参与权。"
+                  f"更关注【{topic}】对个体就业、实际成本和生活体验的实质性影响，"
+                  "强调技术应当兼具普惠性。"
               ),
           },
       ],
       "radar_scores": {
-          "创新突破度": random.randint(82, 96),
-          "资本热度": random.randint(78, 95),
-          "监管风险度": random.randint(65, 91),
-          "公众关注度": random.randint(88, 99),
+          "创新突破度": random.randint(78, 95),
+          "资本热度": range_val := random.randint(75, 98),
+          "监管风险度": random.randint(60, 90),
+          "公众关注度": random.randint(82, 99),
           "落地成熟度": random.randint(55, 88),
       },
   }
-  return simulated_data
 
 
 # 4. 侧边栏配置
 st.sidebar.title("⚙️ 情报控制台")
 api_key = st.sidebar.text_input(
-    "DeepSeek API Key (可选)",
+    "DeepSeek API Key",
     type="password",
     help=(
-        "填入则【联网搜索 + 真实大模型推理】；留空则【联网搜索 + 智能演示模式】"
+        "输入 Key 后将启动【联网搜索 + 深度思考链推理】；留空则使用演示模式。"
     ),
 )
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "🌐 **当前已开启联网功能**：系统能够自动抓取全网最新资讯并送入分析引擎！"
+    "🧠 **深度思考引擎**：看板支持 AI 思考过程可视化，直击事件背后的博弈逻辑。"
 )
 
 # 5. 主界面布局
-st.title("🌐 AI 突发新闻智能情报与立场博弈看板")
+st.title("🧠 AI 智能情报与立场博弈看板")
 st.markdown(
-    "输入突发事件关键词，AI 将**自动联网检索最新资讯**并深度推演多方立场与综合指标。"
+    "输入任意突发热点，AI 将自动联网、**深度思考并推演**各方博弈立场与综合指标。"
 )
 
 user_news_topic = st.text_input(
     "请输入突发新闻主题或关键词：",
-    placeholder="例如：OpenAI 发布 Sora 或 某地低空经济政策",
+    placeholder="例如：人形机器人进入工厂量产 / 某国发布最新 AI 监管法案",
 )
 
-if st.button("🚀 开始联网检索与智能推演", type="primary"):
-  with st.spinner("正在通过网络全网检索最新资讯并进行深度推演..."):
-    # 第一步：先联网抓取真实新闻
+if st.button("🚀 开始联网检索与深度思考推演", type="primary"):
+  with st.spinner("正在联网检索资讯，AI 正在进行多维逻辑思考与推演中..."):
     search_results_text = search_latest_news(user_news_topic)
-    time.sleep(1.0)
+    time.sleep(0.8)
 
     data = None
     mode_used = ""
 
     if not api_key:
-      # 无 Key 状态：联网 + 智能模拟
-      st.toast("已完成全网资讯抓取，正在生成智能演示看板...", icon="🌐")
-      data = get_simulated_analysis(user_news_topic, search_results_text)
-      mode_used = "实时联网检索 + 智能演示模式"
+      st.toast("当前处于演示模式", icon="✨")
+      data = get_simulated_analysis(user_news_topic)
+      mode_used = "智能演示模式（无 API Key）"
     else:
-      # 有 Key 状态：联网 + 真实大模型调用
       try:
         client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         prompt = f"""
-        你是一个资深突发新闻分析师和舆情观察家。以下是通过网络实时检索到的关于【{user_news_topic}】的最新新闻资讯：
+        你是一个资深突发新闻分析师和舆情与博弈论专家。以下是通过网络实时检索到的关于【{user_news_topic}】的最新资讯：
         
         {search_results_text}
         
-        请结合上述真实资讯，对该事件进行多维度的立场拆解，并输出专业的分析报告。
+        请结合上述资讯，执行以下步骤并严格以 JSON 格式输出：
+        1. 在 thinking_process 中写出你的深度思考过程：分析这些新闻之间是否存在冲突、各方利益相关者的核心痛点是什么、为什么要这样评估。
+        2. 撰写专业严谨的分析报告。
+        
+        必须严格以 JSON 格式输出，不要包含任何 markdown 符号（如 ```json），直接输出合法的 JSON 字符串，结构如下：
+        {{
+            "thinking_process": "此处写你对搜索结果的深度逻辑思考与推演分析过程（150字以上）...",
+            "title": "针对该事件的专业分析报告标题",
+            "summary": "200字左右的综合概述",
+            "stances": [
+                {{"group": "第一方立场名称（如：技术驱动派）", "view": "该立场的具体观点详细说明"}},
+                {{"group": "第二方立场名称（如：合规监管派）", "view": "该立场的具体观点详细说明"}},
+                {{"group": "第三方立场名称（如：公众与媒体视角）", "view": "该立场的具体观点详细说明"}}
+            ],
+            "radar_scores": {{
+                "创新突破度": 85,
+                "资本热度": 90,
+                "监管风险度": 70,
+                "公众关注度": 95,
+                "落地成熟度": 80
+            }}
+        }}
         """
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{
                 "role": "system",
                 "content": (
-                    "你是一个专业的舆情与突发事件分析专家，擅长根据实时新闻提炼多方博弈立场。"
+                    "你是一个资深舆情与博弈分析专家，擅长深度逻辑推演并严格输出 JSON。"
                 ),
             }, {
                 "role": "user",
                 "content": prompt,
             }],
-            temperature=0.7,
+            response_format={"type": "json_object"},
+            temperature=0.85,
         )
-        # 此处为了保证看板结构稳定，结合大模型结果或使用通用渲染
-        data = get_simulated_analysis(user_news_topic, search_results_text)
-        mode_used = "实时联网检索 + DeepSeek 真实大模型推理"
+
+        raw_content = response.choices[0].message.content
+        data = json.loads(raw_content)
+        mode_used = "实时联网检索 + DeepSeek 深度思考链推理"
+
       except Exception as e:
-        st.warning(f"API 调用异常 ({e})，已自动切换至联网演示模式。")
-        data = get_simulated_analysis(user_news_topic, search_results_text)
-        mode_used = "实时联网检索 + 自动降级模拟"
+        st.warning(f"API 调用或解析异常 ({e})，已自动降级为演示模式。")
+        data = get_simulated_analysis(user_news_topic)
+        mode_used = "智能演示模式（降级兜底）"
 
     # 6. 渲染看板分析结果
     st.markdown("---")
-    st.success(f"✅ 推演完成！当前运行模式：**{mode_used}**")
+    st.success(f"✅ 深度推演完成！当前运行模式：**{mode_used}**")
 
-    # 展示联网抓取到的实时参考来源（让别人知道它真的去搜了）
+    # 🌟 新增：AI 深度思考过程展示面板
+    with st.expander("🧠 点击展开：AI 的深度逻辑思考与博弈推演链 (Reasoning)", expanded=True):
+      st.info(data.get("thinking_process", "暂无思考链记录。"))
+
     with st.expander("🔍 查看 AI 联网检索到的原始参考资讯"):
       st.text(search_results_text)
 
@@ -183,6 +208,9 @@ if st.button("🚀 开始联网检索与智能推演", type="primary"):
     st.markdown("---")
     markdown_content = f"""# {data['title']}
 
+## 🧠 AI 深度思考与推演链
+{data.get('thinking_process', '')}
+
 ## 检索参考资讯
 {search_results_text}
 
@@ -199,8 +227,8 @@ if st.button("🚀 开始联网检索与智能推演", type="primary"):
       markdown_content += f"- {k}: {v}分\n"
 
     st.download_button(
-        label="📥 一键下载联网情报与大纲报告",
+        label="📥 一键下载完整思考与情报大纲报告",
         data=markdown_content,
-        file_name="news_intelligence_report.md",
+        file_name="news_reasoning_report.md",
         mime="text/markdown",
     )
