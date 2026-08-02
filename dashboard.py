@@ -8,7 +8,7 @@ from openai import OpenAI
 
 # 1. 页面基础配置
 st.set_page_config(
-    page_title="AI 突发新闻智能情报与立场博弈看板", page_icon="🌐", layout="wide"
+    page_title="AI 新闻情报与立场看板", page_icon="🌐", layout="wide"
 )
 
 
