@@ -10,6 +10,7 @@ from tavily import TavilyClient
 
 from demo_data import demo_bundle
 from editor_engine import TZ, apply_freshness_guard, build_prompt, export_markdown, normalize_sources, now_iso, support_ids, validate_brief, verification
+from service_config import ConfigurationError, normalize_api_key
 
 st.set_page_config(page_title="观澜 · AI 智能情报与立场博弈看板", page_icon="◯", layout="wide")
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -50,7 +51,7 @@ st.sidebar.subheader("案头设置")
 mode = st.sidebar.radio("运行模式", ["真实检索与分析", "体验虚构样例"], key="mode")
 with st.sidebar.expander("模型连接", expanded=False):
     api_key = st.text_input("DeepSeek API Key", type="password", key="deepseek_key",
-                            help="仅用于本次会话的模型请求；不写入报告或代码。")
+                            help="粘贴 DeepSeek 控制台提供的完整密钥，不附带中文说明或 Bearer 前缀。仅用于本次会话，不写入报告或代码。")
     has_server_key = bool(secret("DEEPSEEK_API_KEY"))
     has_search_key = bool(secret("TAVILY_API_KEY"))
     st.caption(f"搜索服务：{'已配置' if has_search_key else '未配置 Tavily 密钥'}")
@@ -87,22 +88,32 @@ with st.form("editor_query"):
     submitted = st.form_submit_button("生成编辑简报", type="primary")
 
 if submitted:
-    model_key = api_key or secret("DEEPSEEK_API_KEY")
     if mode == "真实检索与分析" and not topic.strip():
         st.error("请输入明确的新闻主题。")
-    elif mode == "真实检索与分析" and (not model_key or not has_search_key):
-        st.error("真实模式需要 DeepSeek 和 Tavily 密钥。请配置后重试，或主动切换到虚构样例。")
     else:
         progress = None
-        stage = "准备材料"
+        stage = "连接配置"
         try:
+            if mode == "真实检索与分析":
+                if api_key.strip():
+                    raw_model_key = api_key
+                    key_location = "侧栏“模型连接”中的 DeepSeek API Key"
+                else:
+                    raw_model_key = secret("DEEPSEEK_API_KEY")
+                    key_location = "云端 Secrets 中的 DEEPSEEK_API_KEY" if raw_model_key else "DeepSeek 密钥（侧栏“模型连接”或云端 DEEPSEEK_API_KEY）"
+                model_key = normalize_api_key(raw_model_key, key_location)
+                raw_search_key = secret("TAVILY_API_KEY")
+                search_key = normalize_api_key(raw_search_key, "云端 Secrets 中的 TAVILY_API_KEY")
+                if model_key != raw_model_key or search_key != raw_search_key:
+                    st.caption("已清理密钥首尾的空白或包裹引号；未修改密钥内部内容。")
+            stage = "准备材料"
             with st.status("正在准备材料…", expanded=True) as progress:
                 if mode == "体验虚构样例":
                     brief, sources, issues = demo_bundle(now_iso())
                 else:
                     stage = "联网检索"
                     st.write("检索网页正文与来源元数据…")
-                    sources = search_sources(topic.strip(), region.strip(), periods[period_label], secret("TAVILY_API_KEY"))
+                    sources = search_sources(topic.strip(), region.strip(), periods[period_label], search_key)
                     if not sources:
                         raise ValueError("没有取得可用材料。请调整主题或时间范围；不会用模型知识补齐新闻事实。")
                     st.write(f"取得 {len(sources)} 份材料，生成事实、选题与采访问题…")
@@ -137,7 +148,14 @@ if submitted:
                 "模型未完整返回简报，请缩小议题后重试。",
                 "事实编号重复，请重新生成。", "分析引用了不存在的事实编号，请重新生成。",
             }
-            if isinstance(exc, ValueError) and str(exc) in messages:
+            if isinstance(exc, ConfigurationError):
+                st.error(str(exc))
+            elif isinstance(exc, UnicodeEncodeError):
+                if exc.encoding.lower().replace("-", "") in {"ascii", "latin1"}:
+                    st.error("请求头编码失败。请检查 DeepSeek 密钥及云端连接配置是否混入中文、全角符号或隐藏字符；这不是网络中断。")
+                else:
+                    st.error("请求文字包含无法编码的字符。请重新输入主题；若仍失败，请调整检索范围。中文主题本身是支持的。")
+            elif isinstance(exc, ValueError) and str(exc) in messages:
                 st.error(str(exc))
             elif getattr(exc, "status_code", None) in {400, 401, 402, 403, 404, 429}:
                 status = exc.status_code
