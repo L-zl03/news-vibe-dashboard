@@ -1,4 +1,5 @@
 import copy
+import json
 import unittest
 from datetime import date
 from pathlib import Path
@@ -63,6 +64,67 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_brief(payload, self.sources)
 
+    def test_stance_format_variations_are_recovered_conservatively(self):
+        payload = self.brief.model_dump()
+        payload["stances"] = {
+            "group": "运营方", "view": "提出成本增加的解释。",
+            "attribution": "根据报道总结", "fact_ids": "F3",
+            "source_url": "https://untrusted.example/invented",
+        }
+        brief, issues = validate_brief(payload, self.sources)
+        self.assertEqual(len(brief.stances), 1)
+        self.assertEqual(brief.stances[0].fact_ids, ["F3"])
+        self.assertEqual(brief.stances[0].attribution, "分析推断")
+        self.assertGreaterEqual(len(issues), 3)
+        self.assertNotIn("source_url", brief.stances[0].model_dump())
+        for attribution in (None, ["直接表态"], {"type": "直接表态"}, 123):
+            payload["stances"]["attribution"] = attribution
+            brief, issues = validate_brief(payload, self.sources)
+            self.assertEqual(brief.stances[0].attribution, "分析推断")
+
+    def test_malformed_or_missing_stances_do_not_discard_core(self):
+        for value in (None, "无法分析", [], {"错误字段": "不可识别"}):
+            payload = self.brief.model_dump()
+            payload["stances"] = value
+            brief, issues = validate_brief(payload, self.sources)
+            self.assertEqual(brief.stances, [])
+            self.assertEqual(brief.facts, self.brief.facts)
+            self.assertEqual(brief.pitches, self.brief.pitches)
+            self.assertEqual(brief.interviews, self.brief.interviews)
+            self.assertTrue(issues)
+        payload = self.brief.model_dump()
+        del payload["stances"]
+        brief, issues = validate_brief(payload, self.sources)
+        self.assertEqual(brief.stances, [])
+        self.assertTrue(issues)
+
+    def test_invalid_stance_is_skipped_without_inventing_evidence(self):
+        payload = self.brief.model_dump()
+        payload["stances"] = [
+            {"group": "未知方", "view": "无有效依据", "attribution": "直接表态", "fact_ids": ["F999"]},
+            {"group": "缺编号", "view": "不可用"},
+            "不是对象",
+            payload["stances"][0],
+        ]
+        brief, issues = validate_brief(payload, self.sources)
+        self.assertEqual(len(brief.stances), 1)
+        self.assertEqual(brief.stances[0], self.brief.stances[0])
+        self.assertGreaterEqual(len(issues), 3)
+
+    def test_stance_recovery_does_not_relax_core_validation(self):
+        for value in (None, [], "不是JSON对象"):
+            with self.assertRaises(ValueError):
+                validate_brief(value, self.sources)
+        payload = self.brief.model_dump()
+        payload["stances"] = None
+        payload["facts"][0]["kind"] = "非法类型"
+        with self.assertRaises(ValueError):
+            validate_brief(payload, self.sources)
+        payload = self.brief.model_dump()
+        payload["stances"] = "不可用"
+        payload["interviews"][0]["fact_ids"] = ["F999"]
+        with self.assertRaises(ValueError):
+            validate_brief(payload, self.sources)
     def test_source_dates_not_inferred_from_url_or_retrieval(self):
         results = normalize_sources([
             {"title": "页面", "url": "https://example.com/2026/11/14/article", "content": "摘要材料"},
@@ -151,6 +213,34 @@ class InteractionTests(unittest.TestCase):
             self.assertIn("HTTP 401", app.error[0].value)
             self.assertNotIn("PRIVATE_AUTH_DETAILS", app.error[0].value)
             self.assertEqual(app.session_state["brief_bundle"]["id"], original)
+
+    def test_malformed_stances_still_render_and_export_core_results(self):
+        app = AppTest.from_file(str(APP), default_timeout=15)
+        app.secrets["TAVILY_API_KEY"] = "test-search-placeholder"
+        app.secrets["DEEPSEEK_API_KEY"] = "test-model-placeholder"
+        app.run()
+        app.text_input(key="topic").set_value("公共交通票价")
+        brief, sources, _ = demo_bundle(STAMP)
+        payload = brief.model_dump()
+        payload["stances"] = [{"group": "缺少观点和事实依据"}]
+        search_result = {"results": [{"title": s.title, "url": s.url, "raw_content": s.text} for s in sources]}
+        response = SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)))])
+        with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
+            search.return_value.search.return_value = search_result
+            model.return_value.__enter__.return_value.chat.completions.create.return_value = response
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.error)
+            result = app.session_state["brief_bundle"]["brief"]
+            self.assertEqual(result.stances, [])
+            self.assertEqual(len(result.facts), 3)
+            self.assertTrue(app.warning)
+            next(b for b in app.button if b.label.startswith("准备下载")).click().run()
+            report = app.session_state["prepared_export"]["markdown"]
+            for text in ("事实卡片", "选题建议", "采访清单", "本次未取得可用的多方立场"):
+                self.assertIn(text, report)
+            self.assertEqual(model.return_value.__enter__.return_value.chat.completions.create.call_count, 1)
+            self.assertEqual(search.call_count, 1)
 
 
 if __name__ == "__main__":

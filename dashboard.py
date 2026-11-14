@@ -228,6 +228,9 @@ if bundle:
                 reference_list(item.fact_ids)
 
     with stances_tab:
+        st.caption("立场观点需回到关联事实核查；无法使用的条目会单独提示，其他内容继续保留。")
+        if not brief.stances:
+            st.info("本次未取得可用的多方立场。事实卡片、选题建议与采访清单已保留；不会补造立场或引用。")
         for stance in brief.stances:
             with st.container(border=True):
                 st.subheader(stance.group)
