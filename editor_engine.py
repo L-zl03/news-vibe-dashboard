@@ -24,6 +24,10 @@ class Source(Record):
     retrieved_at: str
     text: str
     text_kind: str
+    origin: str = Field(default="web", pattern="^(web|interview)$")
+    speaker: str = ""
+    obtained_date: str = ""
+    ai_allowed: bool = True
 
 
 class Evidence(Record):
@@ -69,9 +73,9 @@ class Brief(Record):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     method_summary: str = Field(min_length=1)
-    facts: list[Fact] = Field(min_length=1, max_length=10)
+    facts: list[Fact] = Field(min_length=1, max_length=80)
     pitches: list[Pitch] = Field(min_length=1, max_length=5)
-    interviews: list[Interview] = Field(min_length=1, max_length=12)
+    interviews: list[Interview] = Field(min_length=1, max_length=60)
     stances: list[Stance] = Field(default_factory=list, max_length=6)
 
 
@@ -228,6 +232,10 @@ def apply_freshness_guard(brief, sources, today):
 
 def verification(fact, reviews):
     review = reviews.get(fact.id, {})
+    if review.get("status") == "已撤回":
+        return "事实已撤回，不参与交叉验证"
+    if review.get("status") in {"存在争议", "需修正"}:
+        return "编辑已标记争议或修正，待核查"
     if any(e.relation == "反驳" for e in fact.evidence):
         return "材料存在反驳，待核查"
     if fact.kind == "分析推断":
@@ -274,9 +282,13 @@ def export_markdown(brief, sources, reviews, meta):
                   f"- 交叉验证：{verification(f, reviews)}", f"- 尚缺证据：{f.missing_evidence}"]
         for e in f.evidence:
             s = by_source[e.source_id]
-            lines += [f"- {e.relation} · {s.id} · {s.title}", f"  - 链接：<{s.url}>",
+            lines += [f"- {e.relation} · {s.id} · {s.title}",
                       f"  - 来源日期：{s.published_date or '未提供'}；抓取时间：{s.retrieved_at}",
                       f"  - {s.text_kind}摘录（文字匹配）：{e.quote}"]
+            if s.url:
+                lines.append(f"  - 链接：<{s.url}>")
+            if s.origin == "interview":
+                lines.append(f"  - 采访对象/材料提供方：{s.speaker or '未记录'}；取得日期：{s.obtained_date or '未记录'}；未经独立核实")
         if reviews.get(f.id, {}).get("note"):
             lines.append(f"- 编辑核查备注：{reviews[f.id]['note']}")
     lines += ["", "## 多方立场"]
@@ -294,7 +306,7 @@ def export_markdown(brief, sources, reviews, meta):
                   f"- 尚待取得：{i.evidence_needed}", f"- 关联事实：{', '.join(i.fact_ids)}", ""]
     lines += ["## 方法与局限", brief.method_summary, "", "## 原始材料索引"]
     for s in sources:
-        lines += [f"- {s.id} · {s.title} · {s.published_date or '日期未提供'} · <{s.url}>"]
+        lines += [f"- {s.id} · {s.title} · {s.published_date or '日期未提供'}" + (f" · <{s.url}>" if s.url else " · 编辑补入材料")]
     if meta.get("issues"):
         lines += ["", "## 自动校验提示", *[f"- {x}" for x in meta['issues']]]
     return "\n".join(lines)

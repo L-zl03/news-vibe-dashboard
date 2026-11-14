@@ -162,13 +162,13 @@ class InteractionTests(unittest.TestCase):
         app = AppTest.from_file(str(APP), default_timeout=15).run()
         self.assertFalse(app.exception)
         app.radio(key="mode").set_value("体验虚构样例").run()
-        app.button[0].click().run()
+        app.button(key="generate_brief").click().run()
         self.assertFalse(app.exception)
         return app
 
     def test_demo_renders_all_modules_and_survives_widget_changes(self):
         app = self.load_demo()
-        self.assertEqual([x.label for x in app.tabs], ["事实卡片", "选题建议", "采访清单", "多方立场", "来源与方法"])
+        self.assertEqual([x.label for x in app.tabs], ["事实卡片", "选题建议", "采访清单", "采编推进", "多方立场", "来源与方法"])
         original = app.session_state["brief_bundle"]["id"]
         app.text_area[1].set_value("来源转述同一公告，未完成独立验证。").run()
         self.assertFalse(app.exception)
@@ -180,7 +180,7 @@ class InteractionTests(unittest.TestCase):
 
     def test_real_mode_empty_input_is_rejected(self):
         app = AppTest.from_file(str(APP)).run()
-        app.button[0].click().run()
+        app.button(key="generate_brief").click().run()
         self.assertFalse(app.exception)
         self.assertIn("请输入明确", app.error[0].value)
         self.assertIsNone(app.session_state["brief_bundle"])
@@ -197,19 +197,21 @@ class InteractionTests(unittest.TestCase):
         with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
             search.return_value.search.return_value = search_result
             model.return_value.__enter__.return_value.chat.completions.create.return_value = response
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertFalse(app.exception)
             self.assertFalse(app.error)
             self.assertEqual(search.call_count, 1)
             original = app.session_state["brief_bundle"]["id"]
+            app.run()
+            app.checkbox(key="replace_confirm").check()
             model.return_value.__enter__.return_value.chat.completions.create.side_effect = RuntimeError("PRIVATE_UPSTREAM_ERROR")
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertEqual(app.session_state["brief_bundle"]["id"], original)
             self.assertEqual(search.call_count, 1)  # session material cache reused
             self.assertNotIn("PRIVATE_UPSTREAM_ERROR", app.error[0].value)
             auth_error = type("AuthorizationFailure", (Exception,), {"status_code": 401})
             model.return_value.__enter__.return_value.chat.completions.create.side_effect = auth_error("PRIVATE_AUTH_DETAILS")
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertIn("HTTP 401", app.error[0].value)
             self.assertNotIn("PRIVATE_AUTH_DETAILS", app.error[0].value)
             self.assertEqual(app.session_state["brief_bundle"]["id"], original)
@@ -228,7 +230,7 @@ class InteractionTests(unittest.TestCase):
         with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
             search.return_value.search.return_value = search_result
             model.return_value.__enter__.return_value.chat.completions.create.return_value = response
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertFalse(app.exception)
             self.assertFalse(app.error)
             result = app.session_state["brief_bundle"]["brief"]

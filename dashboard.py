@@ -11,6 +11,8 @@ from tavily import TavilyClient
 from demo_data import demo_bundle
 from editor_engine import TZ, apply_freshness_guard, build_prompt, export_markdown, normalize_sources, now_iso, support_ids, validate_brief, verification
 from service_config import ConfigurationError, normalize_api_key
+from reporting_workflow import ensure_workflow, fact_status, pitch_state, Decision, TaskProgress, project_bytes, workflow_markdown
+from workflow_ui import project_import, render_workflow
 
 st.set_page_config(page_title="观澜 · AI 智能情报与立场博弈看板", page_icon="◯", layout="wide")
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -47,6 +49,7 @@ def reference_list(fact_ids):
 st.sidebar.title("观澜")
 st.sidebar.caption("AI 智能情报与立场博弈看板")
 st.sidebar.divider()
+project_import()
 st.sidebar.subheader("案头设置")
 mode = st.sidebar.radio("运行模式", ["真实检索与分析", "体验虚构样例"], key="mode")
 with st.sidebar.expander("模型连接", expanded=False):
@@ -85,10 +88,16 @@ with st.form("editor_query"):
     audience = c1.text_input("目标读者", value="普通新闻读者", key="audience")
     region = c2.text_input("关注地域（可选）", placeholder="例如：上海", key="region")
     period_label = c3.selectbox("检索时间范围", list(periods), key="period_label")
-    submitted = st.form_submit_button("生成编辑简报", type="primary")
+    submitted = st.form_submit_button("生成编辑简报", type="primary", key="generate_brief")
+    if st.session_state.brief_bundle:
+        replace_confirm = st.checkbox("我已下载当前选题；允许生成新简报并替换当前选题", key="replace_confirm")
+    else:
+        replace_confirm = True
 
 if submitted:
-    if mode == "真实检索与分析" and not topic.strip():
+    if not replace_confirm:
+        st.error("请先下载当前选题，再勾选允许替换；当前选题已保留。")
+    elif mode == "真实检索与分析" and not topic.strip():
         st.error("请输入明确的新闻主题。")
     else:
         progress = None
@@ -135,7 +144,7 @@ if submitted:
                 st.session_state.brief_bundle = {
                     "id": uuid4().hex, "brief": brief, "sources": sources,
                     "meta": {"mode": mode, "generated_at": now_iso(), "issues": issues,
-                             "audience": audience, "region": region or "未限定", "period": period_label},
+                             "audience": audience, "region": region or "未限定", "period": period_label, "topic": topic},
                 }
                 st.session_state.reviews = {}
                 progress.update(label="编辑简报已生成，事实仍需核查", state="complete", expanded=False)
@@ -179,7 +188,11 @@ if submitted:
 
 bundle = st.session_state.brief_bundle
 if bundle:
+    state = ensure_workflow(bundle)
+    if st.session_state.get("workflow_notice"):
+        st.success(st.session_state.pop("workflow_notice"))
     brief, sources, meta = bundle["brief"], bundle["sources"], bundle["meta"]
+    st.caption(f"持续采编 · 版本 {state.revision} · 当前进展仅在本会话中保存，关闭前请下载下方选题文件。")
     by_source = {s.id: s for s in sources}
     st.divider()
     st.subheader(brief.title)
@@ -190,12 +203,12 @@ if bundle:
     c1, c2, c3 = st.columns(3)
     c1.metric("取得的材料", len(sources))
     c2.metric("事实卡片", len(brief.facts))
-    c3.metric("缺少来源日期", sum(not s.published_date for s in sources))
+    c3.metric("网页缺少发布日期", sum(s.origin == "web" and not s.published_date for s in sources))
     for issue in meta["issues"]:
         st.warning(issue)
 
-    facts_tab, pitches_tab, interviews_tab, stances_tab, sources_tab = st.tabs(
-        ["事实卡片", "选题建议", "采访清单", "多方立场", "来源与方法"],
+    facts_tab, pitches_tab, interviews_tab, workflow_tab, stances_tab, sources_tab = st.tabs(
+        ["事实卡片", "选题建议", "采访清单", "采编推进", "多方立场", "来源与方法"],
         key="editor_sections", on_change="rerun")
     with facts_tab:
         st.caption("原文摘录仅在取得网页正文时展示；摘要摘录会单独标注。来源日期来自搜索服务，缺失时不推测。")
@@ -208,28 +221,37 @@ if bundle:
                 for e in fact.evidence:
                     source = by_source[e.source_id]
                     st.write(f"**{e.relation} · {source.id} · {source.title}**")
-                    st.link_button("打开来源原文", source.url)
-                    st.caption(f"来源日期：{source.published_date or '未提供'} · 抓取时间：{source.retrieved_at}")
+                    if source.url:
+                        st.link_button("打开来源原文", source.url)
+                    if source.origin == "interview":
+                        st.caption(f"编辑补入 · {source.speaker or '提供方未记录'} · 取得日期：{source.obtained_date} · 未经独立核实")
+                    else:
+                        st.caption(f"来源日期：{source.published_date or '未提供'} · 抓取时间：{source.retrieved_at}")
                     st.caption(f"{source.text_kind}摘录 · 文字匹配通过，语义与真实性待核查")
                     st.text(e.quote)
                 st.write(f"**尚缺证据：** {fact.missing_evidence}")
                 with st.expander("编辑核查记录"):
-                    note = st.text_area("核查备注（注明独立信源及核查依据）", key=f"note_{bundle['id']}_{fact.id}")
+                    old_review = st.session_state.reviews.get(fact.id, {})
+                    note = st.text_area("核查备注（注明独立信源及核查依据）", value=old_review.get("note", ""), max_chars=10000, key=f"note_{bundle['id']}_{state.revision}_{fact.id}")
                     eligible = len(support_ids(fact)) >= 2 and fact.kind != "分析推断" and not any(e.relation == "反驳" for e in fact.evidence)
                     independent = st.checkbox("我已回原文确认：支持材料独立采集，且共同支持该主张", disabled=not eligible,
-                                              key=f"review_{bundle['id']}_{fact.id}")
+                                              value=old_review.get("independent", False) if eligible else False, key=f"review_{bundle['id']}_{state.revision}_{fact.id}")
                     if not eligible:
                         st.caption("至少两份支持材料且无反驳，才能记录独立信源交叉验证。单一官方原文可在备注中记录核对结果。")
                     if independent and not note.strip():
                         st.warning("补充核查依据后，才会标记为编辑已确认。")
-                st.session_state.reviews[fact.id] = {"independent": independent, "note": note}
+                st.session_state.reviews[fact.id] = {**old_review, "independent": independent, "note": note}
+                st.caption("核查结论：" + fact_status(fact, st.session_state.reviews))
                 st.caption("交叉验证状态：" + verification(fact, st.session_state.reviews))
 
     with pitches_tab:
         st.caption("AI 建议供编辑判断。“材料缺口”仅指本轮材料，不代表全网尚未报道。新闻钩子须回到有日期的来源核实。")
-        for pitch in brief.pitches:
+        for index, pitch in enumerate(brief.pitches, 1):
             with st.container(border=True):
-                st.subheader(pitch.title)
+                st.subheader(f"P{index} · {pitch.title}")
+                decision = state.decisions.get(f"P{index}", Decision())
+                st.caption(f"编辑判断：{decision.status} · {decision.note or '尚未填写依据'}")
+                st.info(pitch_state(bundle, st.session_state.reviews, index - 1))
                 st.write(f"**为什么现在写：** {pitch.why_now}")
                 st.write(f"**本轮材料缺口：** {pitch.gap}")
                 st.write(f"**适合读者：** {pitch.readers}")
@@ -237,13 +259,18 @@ if bundle:
                 reference_list(pitch.fact_ids)
 
     with interviews_tab:
-        st.caption("这是采访计划，尚未联系任何对象。每条问题都关联事实及需要补齐的证据。")
-        for item in brief.interviews:
+        st.caption("每条问题关联事实及需要补齐的证据；进度由编辑记录，不代表系统已联系对象。")
+        for index, item in enumerate(brief.interviews, 1):
             with st.container(border=True):
-                st.subheader(f"{item.priority} · {item.target}")
+                st.subheader(f"Q{index} · {item.priority} · {item.target}")
+                task = state.tasks.get(f"Q{index}", TaskProgress())
+                st.caption(f"进度：{task.status} · 关联材料：{', '.join(task.material_ids) or '无'} · {task.note}")
                 st.write(f"**具体问题：** {item.question}")
                 st.write(f"**需要取得：** {item.evidence_needed}")
                 reference_list(item.fact_ids)
+
+    with workflow_tab:
+        render_workflow(bundle, st.session_state.reviews, api_key or secret("DEEPSEEK_API_KEY"), secret("DEEPSEEK_MODEL"))
 
     with stances_tab:
         st.caption("立场观点需回到关联事实核查；无法使用的条目会单独提示，其他内容继续保留。")
@@ -261,17 +288,25 @@ if bundle:
         st.warning("文字匹配只验证摘录存在；不会自动认定事实为真，也不会自动确认信源独立。来源日期与报道后续需人工核查。")
         for source in sources:
             with st.expander(f"{source.id} · {source.title}"):
-                st.link_button("查看网页", source.url)
+                if source.url:
+                    st.link_button("查看网页", source.url)
+                else:
+                    st.caption(f"编辑补入 · 提供方：{source.speaker or '未记录'} · 取得日期：{source.obtained_date} · 未经独立核实")
                 st.caption(f"日期：{source.published_date or '未提供'} · 抓取：{source.retrieved_at} · {source.text_kind}")
                 st.text(source.text)
 
+    st.divider()
+    st.subheader("保存这个选题")
+    st.caption("JSON包含采访全文、核查记录、选题判断和修改历史，下次可从侧栏恢复。文件可能包含敏感采访信息，请妥善保管。网站尚无账号与云端自动存档。")
+    current_project = project_bytes(bundle, st.session_state.reviews)
+    st.download_button(f"下载选题文件 · v{state.revision}（下次继续）", current_project, file_name=f"guanlan_project_v{state.revision}.json", mime="application/json", on_click="ignore", key="download_project")
     if st.button("准备下载（包含当前核查记录）"):
         st.session_state.prepared_export = {
-            "bundle_id": bundle["id"], "prepared_at": now_iso(),
-            "markdown": export_markdown(brief, sources, st.session_state.reviews, meta),
+            "bundle_id": bundle["id"], "prepared_at": now_iso(), "project_snapshot": current_project,
+            "markdown": export_markdown(brief, sources, st.session_state.reviews, meta) + workflow_markdown(bundle, st.session_state.reviews),
         }
     prepared = st.session_state.get("prepared_export")
-    if prepared and prepared["bundle_id"] == bundle["id"]:
+    if prepared and prepared["bundle_id"] == bundle["id"] and prepared.get("project_snapshot") == current_project:
         st.caption(f"下载快照：{prepared['prepared_at']}。修改核查记录后，请重新点击“准备下载”。")
         st.download_button("下载完整编辑简报（Markdown）", prepared["markdown"], file_name="editorial_brief.md", mime="text/markdown", on_click="ignore")
 else:

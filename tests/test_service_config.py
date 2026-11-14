@@ -42,7 +42,7 @@ class ConnectionInteractionTests(unittest.TestCase):
         app = self.create_app()
         app.text_input(key="deepseek_key").set_value("sk-PRIVATE中文")
         with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertFalse(app.exception)
             self.assertIn("侧栏", app.error[0].value)
             self.assertIn("非英文", app.error[0].value)
@@ -55,7 +55,7 @@ class ConnectionInteractionTests(unittest.TestCase):
         app = self.create_app()
         app.secrets["TAVILY_API_KEY"] = "tvly-PRIVATE中文"
         with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertFalse(app.exception)
             self.assertIn("TAVILY_API_KEY", app.error[0].value)
             self.assertNotIn("PRIVATE", app.error[0].value)
@@ -71,7 +71,7 @@ class ConnectionInteractionTests(unittest.TestCase):
         with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
             search.return_value.search.return_value = {"results": [{"title": s.title, "url": s.url, "raw_content": s.text} for s in sources]}
             model.return_value.__enter__.return_value.chat.completions.create.return_value = response
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertFalse(app.exception)
             self.assertFalse(app.error)
             search.assert_called_once_with(api_key="tvly-test-search")
@@ -85,7 +85,7 @@ class ConnectionInteractionTests(unittest.TestCase):
         with patch("tavily.TavilyClient") as search, patch("openai.OpenAI") as model:
             search.return_value.search.return_value = {"results": [{"title": s.title, "url": s.url, "raw_content": s.text} for s in sources]}
             model.return_value.__enter__.return_value.chat.completions.create.side_effect = UnicodeEncodeError("ascii", "PRIVATE中文", 7, 9, "not ASCII")
-            app.button[0].click().run()
+            app.button(key="generate_brief").click().run()
             self.assertFalse(app.exception)
             self.assertIn("请求头编码失败", app.error[0].value)
             self.assertNotIn("PRIVATE", app.error[0].value)
