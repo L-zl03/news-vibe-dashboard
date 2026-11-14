@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import streamlit as st
 from openai import OpenAI
+from pydantic import ValidationError
 from tavily import TavilyClient
 
 from demo_data import demo_bundle
@@ -74,16 +75,20 @@ if submitted:
     elif mode == "真实检索与分析" and (not model_key or not has_search_key):
         st.error("真实模式需要 DeepSeek 和 Tavily 密钥。请配置后重试，或主动切换到虚构样例。")
     else:
+        progress = None
+        stage = "准备材料"
         try:
             with st.status("正在准备材料…", expanded=True) as progress:
                 if mode == "体验虚构样例":
                     brief, sources, issues = demo_bundle(now_iso())
                 else:
+                    stage = "联网检索"
                     st.write("检索网页正文与来源元数据…")
                     sources = search_sources(topic.strip(), region.strip(), periods[period_label], secret("TAVILY_API_KEY"))
                     if not sources:
                         raise ValueError("没有取得可用材料。请调整主题或时间范围；不会用模型知识补齐新闻事实。")
                     st.write(f"取得 {len(sources)} 份材料，生成事实、选题与采访问题…")
+                    stage = "模型生成"
                     with OpenAI(api_key=model_key, base_url="https://api.deepseek.com", timeout=120, max_retries=0) as client:
                         response = client.chat.completions.create(
                             model=secret("DEEPSEEK_MODEL") or "deepseek-chat",
@@ -95,6 +100,7 @@ if submitted:
                     if choice.finish_reason != "stop":
                         raise ValueError("模型未完整返回简报，请缩小议题后重试。")
                     st.write("检查事实编号、来源引用与逐字摘录…")
+                    stage = "结构校验"
                     brief, issues = validate_brief(json.loads(choice.message.content or ""), sources)
                 brief = apply_freshness_guard(brief, sources, datetime.now(TZ).date())
                 st.session_state.brief_bundle = {
@@ -106,6 +112,8 @@ if submitted:
                 progress.update(label="编辑简报已生成，事实仍需核查", state="complete", expanded=False)
         except Exception as exc:
             # Never echo SDK exceptions: upstream messages can contain request data.
+            if progress is not None:
+                progress.update(label=f"{stage}未完成", state="error", expanded=True)
             messages = {
                 "没有取得可用材料。请调整主题或时间范围；不会用模型知识补齐新闻事实。",
                 "模型未完整返回简报，请缩小议题后重试。",
@@ -113,8 +121,25 @@ if submitted:
             }
             if isinstance(exc, ValueError) and str(exc) in messages:
                 st.error(str(exc))
+            elif getattr(exc, "status_code", None) in {400, 401, 402, 403, 404, 429}:
+                status = exc.status_code
+                reason = {
+                    400: "服务拒绝了请求参数，请检查模型配置。",
+                    401: "密钥认证失败，请在侧栏重新填写有效密钥。",
+                    402: "账户余额不足，请检查服务账户额度。",
+                    403: "当前密钥没有访问权限，请核对服务账户授权。",
+                    404: "请求的模型或接口不存在，请检查模型配置。",
+                    429: "服务请求过于频繁或达到额度限制，请稍后重试。",
+                }[status]
+                st.error(f"{stage}失败（HTTP {status}）：{reason}")
+            elif isinstance(exc, ValidationError):
+                fields = sorted({str(error["loc"][0]) for error in exc.errors(include_input=False) if error["loc"]})
+                st.error("模型返回结构不符合编辑简报要求，请重试。待修正字段：" + "、".join(fields))
+            elif isinstance(exc, json.JSONDecodeError):
+                st.error("模型未返回完整有效的 JSON 编辑简报，请缩小议题后重试。")
             else:
-                st.error("本次生成失败。请检查密钥、额度与网络，或稍后重试。已有简报仍保留；未切换为演示结果。")
+                st.error(f"{stage}失败（{type(exc).__name__}）。请检查网络或稍后重试。")
+            st.caption("已有简报仍保留；未切换为演示结果。错误提示不包含密钥或请求正文。")
 
 bundle = st.session_state.brief_bundle
 if bundle:

@@ -145,6 +145,12 @@ class InteractionTests(unittest.TestCase):
             self.assertEqual(app.session_state["brief_bundle"]["id"], original)
             self.assertEqual(search.call_count, 1)  # session material cache reused
             self.assertNotIn("PRIVATE_UPSTREAM_ERROR", app.error[0].value)
+            auth_error = type("AuthorizationFailure", (Exception,), {"status_code": 401})
+            model.return_value.__enter__.return_value.chat.completions.create.side_effect = auth_error("PRIVATE_AUTH_DETAILS")
+            app.button[0].click().run()
+            self.assertIn("HTTP 401", app.error[0].value)
+            self.assertNotIn("PRIVATE_AUTH_DETAILS", app.error[0].value)
+            self.assertEqual(app.session_state["brief_bundle"]["id"], original)
 
 
 if __name__ == "__main__":
