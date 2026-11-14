@@ -4,6 +4,8 @@
 
 ## 本地运行
 
+界面采用黑白灰原生主题，字体与配色位于 `.streamlit/config.toml`。标题使用自托管的 **Ink Editorial Light**（基于霞鹜文楷轻体的 GB 2312 网页子集，OFL 授权），营造清瘦书法笔意；并非真正的瘦金体字库。正文使用易读的系统衬线字体。首页远山为项目内原创 SVG，字体与插图均不依赖外部 CDN。请一并部署 `assets/`、`static/fonts/` 和 `.streamlit/config.toml`；首次增加字体配置后需重启服务。
+
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt

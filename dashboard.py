@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from uuid import uuid4
 
 import streamlit as st
@@ -10,7 +11,8 @@ from tavily import TavilyClient
 from demo_data import demo_bundle
 from editor_engine import TZ, apply_freshness_guard, build_prompt, export_markdown, normalize_sources, now_iso, support_ids, validate_brief, verification
 
-st.set_page_config(page_title="AI 智能情报与立场博弈看板", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="观澜 · AI 智能情报与立场博弈看板", page_icon="◯", layout="wide")
+ASSETS = Path(__file__).resolve().parent / "assets"
 st.session_state.setdefault("brief_bundle", None)
 st.session_state.setdefault("reviews", {})
 
@@ -41,26 +43,42 @@ def reference_list(fact_ids):
     st.caption("关联事实：" + " · ".join(fact_ids))
 
 
-st.sidebar.title("情报控制台")
+st.sidebar.title("观澜")
+st.sidebar.caption("AI 智能情报与立场博弈看板")
+st.sidebar.divider()
+st.sidebar.subheader("案头设置")
 mode = st.sidebar.radio("运行模式", ["真实检索与分析", "体验虚构样例"], key="mode")
-api_key = st.sidebar.text_input("DeepSeek API Key", type="password", key="deepseek_key",
-                                help="仅用于本次会话的模型请求；不写入报告或代码。")
-has_server_key = bool(secret("DEEPSEEK_API_KEY"))
-has_search_key = bool(secret("TAVILY_API_KEY"))
-st.sidebar.caption(f"搜索服务：{'已配置' if has_search_key else '未配置 Tavily 密钥'}")
-st.sidebar.caption(f"模型服务：{'已配置' if api_key or has_server_key else '未配置 DeepSeek 密钥'}")
-st.sidebar.info("每条主张回到具体材料。文字匹配不等于事实核查；多篇转载不等于独立信源。")
+with st.sidebar.expander("模型连接", expanded=False):
+    api_key = st.text_input("DeepSeek API Key", type="password", key="deepseek_key",
+                            help="仅用于本次会话的模型请求；不写入报告或代码。")
+    has_server_key = bool(secret("DEEPSEEK_API_KEY"))
+    has_search_key = bool(secret("TAVILY_API_KEY"))
+    st.caption(f"搜索服务：{'已配置' if has_search_key else '未配置 Tavily 密钥'}")
+    st.caption(f"模型服务：{'已配置' if api_key or has_server_key else '未配置 DeepSeek 密钥'}")
+st.sidebar.caption("选择虚构样例，可直接体验编辑流程。")
+st.sidebar.divider()
+st.sidebar.caption("先证其事，再观其势。")
+st.sidebar.caption("每条主张回到具体材料。文字匹配不等于事实核查；多篇转载不等于独立信源。")
 st.sidebar.caption("会话关闭后核查记录可能丢失，请及时导出。")
 
-st.title("🧠 AI 智能情报与立场博弈看板")
-st.write("从热点线索到可追溯的编辑简报：核对事实、发现选题、准备采访。")
+hero_text, hero_art = st.columns([1.65, 1], vertical_alignment="center", gap="large")
+with hero_text:
+    st.caption("编 辑 案 头  /  AI 智 能 情 报")
+    st.title("观澜 · 情报笺")
+    st.write("辨事实，观立场，见选题。")
+    st.caption("从一则热点出发，让每个判断有据可循。")
+with hero_art:
+    st.image(str(ASSETS / "ink-landscape.svg"), width="stretch")
+st.space("small")
 if mode == "体验虚构样例":
     st.warning("样例模式：展示固定的虚构公交议题，不联网，不代表真实新闻。")
 else:
-    st.caption("真实模式将调用 Tavily 与 DeepSeek；检索或模型失败会保留已有结果，不自动生成替代事实。")
+    st.caption("联网检索 · 来源可追溯 · 事实待核验")
 
 periods = {"近一个月": "month", "近一周": "week", "近一天": "day", "不限时间（含历史背景）": ""}
 with st.form("editor_query"):
+    st.subheader("起一则选题")
+    st.caption("写下你关注的议题，再圈定读者、地域与时间。")
     topic = st.text_input("新闻主题或关键词", placeholder="例如：城市公共交通票价上调", key="topic")
     c1, c2, c3 = st.columns(3)
     audience = c1.text_input("目标读者", value="普通新闻读者", key="audience")
@@ -187,7 +205,7 @@ if bundle:
                     if independent and not note.strip():
                         st.warning("补充核查依据后，才会标记为编辑已确认。")
                 st.session_state.reviews[fact.id] = {"independent": independent, "note": note}
-                st.info("交叉验证状态：" + verification(fact, st.session_state.reviews))
+                st.caption("交叉验证状态：" + verification(fact, st.session_state.reviews))
 
     with pitches_tab:
         st.caption("AI 建议供编辑判断。“材料缺口”仅指本轮材料，不代表全网尚未报道。新闻钩子须回到有日期的来源核实。")
@@ -235,3 +253,17 @@ if bundle:
     if prepared and prepared["bundle_id"] == bundle["id"]:
         st.caption(f"下载快照：{prepared['prepared_at']}。修改核查记录后，请重新点击“准备下载”。")
         st.download_button("下载完整编辑简报（Markdown）", prepared["markdown"], file_name="editorial_brief.md", mime="text/markdown", on_click="ignore")
+else:
+    st.space("small")
+    intro = st.columns(3, gap="large")
+    for column, heading, text in zip(intro,
+        ["01 / 事实有据", "02 / 选题有由", "03 / 采访有问"],
+        ["逐条追溯主张、摘录与来源，留下需要核验的空白。",
+         "辨认发稿时机、材料缺口与读者，找到值得深入的角度。",
+         "把证据缺口化为具体问题，明确该问谁、还缺什么。"]):
+        with column:
+            st.markdown(f"**{heading}**")
+            st.caption(text)
+
+st.space("small")
+st.caption("观澜 · 情报笺　/　以事实为底，以判断成文。")
