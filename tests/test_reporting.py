@@ -166,6 +166,19 @@ class ReportingTests(unittest.TestCase):
 
 
 class WorkflowInteractionTests(unittest.TestCase):
+    def test_hot_reload_refreshes_old_imported_model_schema(self):
+        import editor_engine
+        from pydantic import create_model
+        legacy = create_model('LegacySource', id=(str, ...))
+        with patch.object(editor_engine, 'Source', legacy):
+            app = AppTest.from_file(str(APP), default_timeout=20).run()
+            self.assertFalse(app.exception)
+            self.assertIn('origin', editor_engine.Source.model_fields)
+            app.radio(key='mode').set_value('体验虚构样例').run()
+            app.button(key='generate_brief').click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(all(s.origin == 'web' for s in app.session_state['brief_bundle']['sources']))
+
     def demo(self):
         app = AppTest.from_file(str(APP), default_timeout=20).run()
         app.radio(key='mode').set_value('体验虚构样例').run()

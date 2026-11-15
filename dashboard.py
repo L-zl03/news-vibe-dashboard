@@ -1,4 +1,6 @@
 import json
+import importlib
+import sys
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -7,6 +9,15 @@ import streamlit as st
 from openai import OpenAI
 from pydantic import ValidationError
 from tavily import TavilyClient
+
+# Community Cloud can hot-reload this entry point while keeping imported model
+# classes alive. Refresh the dependent modules once when upgrading the schema.
+import editor_engine as _editor_engine
+if "origin" not in _editor_engine.Source.model_fields:
+    importlib.reload(_editor_engine)
+    for _name in ("demo_data", "reporting_workflow", "workflow_ui"):
+        if _name in sys.modules:
+            importlib.reload(sys.modules[_name])
 
 from demo_data import demo_bundle
 from editor_engine import TZ, apply_freshness_guard, build_prompt, export_markdown, normalize_sources, now_iso, support_ids, validate_brief, verification

@@ -108,10 +108,14 @@ class ProjectFile(Record):
 
 def ensure_workflow(bundle):
     # Hot deployments can leave pre-upgrade Pydantic objects in live sessions.
-    if any(not hasattr(source, "origin") for source in bundle["sources"]):
+    if any(not isinstance(source, Source) or not hasattr(source, "origin") for source in bundle["sources"]):
         bundle["sources"] = [Source.model_validate(source.model_dump()) for source in bundle["sources"]]
+    if not isinstance(bundle["brief"], Brief):
+        bundle["brief"] = Brief.model_validate(bundle["brief"].model_dump())
     if "workflow" not in bundle:
         bundle["workflow"] = Workflow(changes=[Change(revision=1, at=now_iso(), action="建立选题", detail="保存初始事实、来源、选题与采访清单。")])
+    elif not isinstance(bundle["workflow"], Workflow):
+        bundle["workflow"] = Workflow.model_validate(bundle["workflow"].model_dump())
     return bundle["workflow"]
 
 
@@ -292,8 +296,9 @@ def save_task(bundle, task_id, status, note):
 
 
 def project_bytes(bundle, reviews):
+    state = ensure_workflow(bundle)
     data = ProjectFile(id=bundle["id"], brief=bundle["brief"], sources=bundle["sources"], meta=bundle["meta"],
-                       reviews=reviews, workflow=ensure_workflow(bundle))
+                       reviews=reviews, workflow=state)
     return data.model_dump_json(indent=2).encode("utf-8")
 
 
