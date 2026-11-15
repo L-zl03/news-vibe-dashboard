@@ -166,6 +166,26 @@ class ReportingTests(unittest.TestCase):
 
 
 class WorkflowInteractionTests(unittest.TestCase):
+    def test_restore_controls_commit_valid_file_and_preserve_on_failure(self):
+        bundle, reviews = project()
+        material(bundle, reviews)
+        upload = SimpleNamespace(getvalue=lambda: project_bytes(bundle, reviews))
+        with patch('streamlit.file_uploader', side_effect=lambda label, *a, **kw: upload if label == '选择选题 JSON' else None):
+            app = AppTest.from_file(str(APP), default_timeout=20).run()
+            self.assertTrue(app.button(key='restore_project').disabled)
+            app.checkbox(key='restore_confirm').check().run()
+            app.button(key='restore_project').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.session_state['brief_bundle']['sources']), 4)
+            self.assertEqual(app.session_state['reviews']['F1']['status'], '待复核')
+            self.assertNotEqual(app.session_state['brief_bundle']['id'], bundle['id'])
+            current_id = app.session_state['brief_bundle']['id']
+            upload.getvalue = lambda: b'{}'
+            app.button(key='restore_project').click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['brief_bundle']['id'], current_id)
+            self.assertIn('校验失败', app.error[0].value)
+
     def test_hot_reload_refreshes_old_imported_model_schema(self):
         import editor_engine
         from pydantic import create_model
